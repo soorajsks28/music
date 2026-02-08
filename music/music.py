@@ -1,8 +1,7 @@
 import streamlit as st
 from ytmusicapi import YTMusic
-import yt_dlp
 
-# --- APP CONFIGURATION (Fast Load) ---
+# --- APP CONFIGURATION ---
 st.set_page_config(page_title="Vibe Music", layout="centered", page_icon="🎵")
 
 # --- INITIALIZE API ---
@@ -12,7 +11,7 @@ def load_api():
 
 yt = load_api()
 
-# --- CUSTOM CSS (Spotify Dark Theme + Fast UI) ---
+# --- CUSTOM CSS (Wahi Same Dark Theme) ---
 st.markdown("""
 <style>
     /* 1. Ultra Dark Theme */
@@ -95,22 +94,13 @@ def search_tracks(query):
     # Search Results Cache (Speed Booster)
     return yt.search(query, filter="songs")[:15]
 
-@st.cache_data(show_spinner=False)
-def get_audio_url(video_id):
-    # Extracts Audio Link
-    try:
-        ydl_opts = {'format': 'bestaudio/best', 'quiet': True, 'noplaylist': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)['url']
-    except: return None
-
 # --- UI LOGIC ---
 
-# >>> PLAYER SCREEN <<<
+# >>> PLAYER SCREEN (Updated for Mobile Playback) <<<
 if st.session_state.page == 'player':
     song = st.session_state.current_song
     
-    # Back Button (Spotify Style Top-Left)
+    # Back Button (Top-Left)
     if st.button("⬅ Back", key="back_btn"):
         st.session_state.page = 'home'
         st.rerun()
@@ -118,39 +108,33 @@ if st.session_state.page == 'player':
     # Player UI
     st.markdown("<div class='player-box'>", unsafe_allow_html=True)
     
-    col_art, col_info = st.columns([1, 1])
-    with col_art:
-        try: img = song['thumbnails'][-1]['url']
-        except: img = "https://via.placeholder.com/300"
-        st.image(img, use_container_width=True)
-        
-    with col_info:
-        st.markdown(f"### {song['title']}")
-        try: st.caption(song['artists'][0]['name'])
-        except: st.caption("Unknown Artist")
-        
-        # Audio loading...
-        with st.spinner("Connecting to Server..."):
-            url = get_audio_url(song['videoId'])
-            if url:
-                st.audio(url, format='audio/mp3', start_time=0)
-            else:
-                st.error("Audio unavailable.")
+    # Title & Artist
+    st.markdown(f"### {song['title']}")
+    try: st.caption(song['artists'][0]['name'])
+    except: st.caption("Unknown Artist")
+    
+    st.write("") # Thoda space
+    
+    # --- CHANGE IS HERE ---
+    # Humne hidden audio player hata kar visible video player laga diya.
+    # Ye phone par 100% chalega.
+    video_url = f"https://www.youtube.com/watch?v={song['videoId']}"
+    st.video(video_url)
+    # ----------------------
                 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# >>> HOME / SEARCH SCREEN <<<
+# >>> HOME / SEARCH SCREEN (Bilkul Same Hai) <<<
 else:
     st.title("Vibe Music 🎵")
     
-    # 1. SEARCH BAR (The Brain)
-    # Note: Streamlit requires 'Enter' key to submit
+    # 1. SEARCH BAR
     new_query = st.text_input("", placeholder="Search songs, artists, or moods...", value=st.session_state.search_query)
 
     if new_query:
         st.session_state.search_query = new_query
         
-        # 2. SUGGESTIONS (Google Style Chips)
+        # 2. SUGGESTIONS
         suggs = get_search_suggestions(new_query)
         if suggs:
             st.caption("Did you mean?")
@@ -161,7 +145,7 @@ else:
                         st.session_state.search_query = sugg
                         st.rerun()
 
-        # 3. RESULTS LIST (Spotify Style)
+        # 3. RESULTS LIST
         st.markdown("---")
         results = search_tracks(st.session_state.search_query)
         
@@ -170,7 +154,7 @@ else:
             title = song.get('title', 'Track')
             try: artist = song['artists'][0]['name']
             except: artist = "Artist"
-            try: thumb = song['thumbnails'][0]['url'] # Small thumb for speed
+            try: thumb = song['thumbnails'][0]['url'] 
             except: thumb = ""
             vid_id = song['videoId']
 
@@ -190,11 +174,10 @@ else:
             
             st.markdown("<div style='border-bottom: 1px solid #222; margin-bottom: 5px;'></div>", unsafe_allow_html=True)
 
-    # 4. DEFAULT HOME (If Search is Empty)
+    # 4. DEFAULT HOME
     else:
         st.subheader("🚀 Quick Picks")
         
-        # Fast Mood Buttons
         moods = ["Trending India", "Punjabi Hits", "LoFi Beats", "Gym Phonk", "90s Bollywood"]
         m_cols = st.columns(3)
         for i, mood in enumerate(moods):
@@ -202,6 +185,7 @@ else:
                 if st.button(mood, key=f"m_{i}", use_container_width=True):
                     st.session_state.search_query = mood
                     st.rerun()
+
 
 
                 #python -m streamlit run music.py
