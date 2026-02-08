@@ -1,5 +1,6 @@
 import streamlit as st
 from ytmusicapi import YTMusic
+import requests  # Data fetch karne ke liye
 
 # --- APP CONFIGURATION ---
 st.set_page_config(page_title="Vibe Music", layout="centered", page_icon="🎵")
@@ -11,67 +12,32 @@ def load_api():
 
 yt = load_api()
 
-# --- CUSTOM CSS (Wahi Same Dark Theme) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
     /* 1. Ultra Dark Theme */
-    .stApp {
-        background-color: #000000;
-        color: white;
+    .stApp { background-color: #000000; color: white; }
+    
+    /* 2. Search Bar */
+    .stTextInput > div > div > input {
+        background-color: #1a1a1a; color: white; border-radius: 30px; 
+        border: 1px solid #333; font-size: 16px;
     }
     
-    /* 2. Search Bar (Google Style) */
-    .stTextInput > div > div > input {
-        background-color: #1a1a1a;
-        color: white;
-        border-radius: 30px;
-        padding: 10px 20px;
-        border: 1px solid #333;
-        font-size: 16px;
-    }
-    .stTextInput > div > div > input:focus {
-        border-color: #1DB954; /* Spotify Green */
-    }
-
-    /* 3. Song List Item (Compact & Fast) */
+    /* 3. Song List */
     .song-row {
-        background: #121212;
-        padding: 10px;
-        border-radius: 8px;
-        margin-bottom: 5px;
-        display: flex;
-        align-items: center;
-        transition: 0.2s;
-        border: 1px solid transparent;
+        background: #121212; padding: 10px; border-radius: 8px; margin-bottom: 5px;
+        display: flex; align-items: center; border: 1px solid transparent;
     }
-    .song-row:hover {
-        background: #2a2a2a;
-        border-color: #1DB954;
-    }
+    .song-row:hover { border-color: #1DB954; }
 
-    /* 4. Suggestion Chips */
-    div[data-testid="stHorizontalBlock"] button {
-        border-radius: 20px;
-        border: 1px solid #333;
-        background-color: #1a1a1a;
-        color: white;
-        font-size: 12px;
-        padding: 2px 10px;
-    }
-    div[data-testid="stHorizontalBlock"] button:hover {
-        border-color: #1DB954;
-        color: #1DB954;
-    }
-
-    /* Hide Extra Streamlit Junk */
+    /* Hide Junk */
     header, footer {visibility: hidden;}
     
-    /* Player Overlay */
+    /* Player Box */
     .player-box {
         background: linear-gradient(180deg, rgba(30,30,30,1) 0%, rgba(0,0,0,1) 100%);
-        padding: 20px;
-        border-radius: 15px;
-        text-align: center;
+        padding: 20px; border-radius: 15px; text-align: center; margin-top: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -81,26 +47,42 @@ if 'page' not in st.session_state: st.session_state.page = 'home'
 if 'current_song' not in st.session_state: st.session_state.current_song = None
 if 'search_query' not in st.session_state: st.session_state.search_query = ""
 
-# --- ULTRA FAST FUNCTIONS ---
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_search_suggestions(query):
-    # Google/YouTube like suggestions
-    try: return yt.get_search_suggestions(query)[:4]
-    except: return []
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def search_tracks(query):
-    # Search Results Cache (Speed Booster)
-    return yt.search(query, filter="songs")[:15]
+# --- NEW AUDIO ENGINE (BYPASS) ---
+@st.cache_data(show_spinner=False, ttl=600)
+def get_audio_stream(video_id):
+    """
+    Piped API ka use karke direct Audio Stream nikalta hai.
+    Ye YouTube Blocking ko bypass karta hai.
+    """
+    # Public Instances ki list (agar ek down ho to dusra try kare)
+    instances = [
+        "https://pipedapi.kavin.rocks",
+        "https://api.piped.io",
+        "https://pipedapi.kavin.rocks"
+    ]
+    
+    for base_url in instances:
+        try:
+            url = f"{base_url}/streams/{video_id}"
+            response = requests.get(url, timeout=4)
+            data = response.json()
+            
+            # Sirf Audio streams dhundo
+            for stream in data['audioStreams']:
+                # M4A format sabse badhiya chalta hai browsers mein
+                if stream['mimeType'] == 'audio/mp4':
+                    return stream['url']
+        except:
+            continue
+            
+    return None
 
 # --- UI LOGIC ---
 
-# >>> PLAYER SCREEN (Updated for Mobile Playback) <<<
+# >>> PLAYER SCREEN <<<
 if st.session_state.page == 'player':
     song = st.session_state.current_song
     
-    # Back Button (Top-Left)
     if st.button("⬅ Back", key="back_btn"):
         st.session_state.page = 'home'
         st.rerun()
@@ -108,84 +90,77 @@ if st.session_state.page == 'player':
     # Player UI
     st.markdown("<div class='player-box'>", unsafe_allow_html=True)
     
-    # Title & Artist
+    # Album Art
+    try: img = song['thumbnails'][-1]['url']
+    except: img = "https://via.placeholder.com/300"
+    st.image(img, use_container_width=True)
+    
+    # Details
     st.markdown(f"### {song['title']}")
     try: st.caption(song['artists'][0]['name'])
     except: st.caption("Unknown Artist")
     
-    st.write("") # Thoda space
+    st.write("") # Spacer
     
-    # --- CHANGE IS HERE ---
-    # Humne hidden audio player hata kar visible video player laga diya.
-    # Ye phone par 100% chalega.
-    video_url = f"https://www.youtube.com/watch?v={song['videoId']}"
-    st.video(video_url)
-    # ----------------------
-                
+    # --- AUDIO PLAYER (FIXED) ---
+    with st.spinner("🎧 Fetching best audio stream..."):
+        audio_url = get_audio_stream(song['videoId'])
+        
+        if audio_url:
+            # Format 'audio/mp4' use karein taaki Android background mein play kare
+            st.audio(audio_url, format='audio/mp4', start_time=0)
+            st.caption("✅ Audio Loaded (Background Play Supported)")
+        else:
+            st.error("⚠️ Stream not found. Try another song.")
+            # Fallback Video (sirf agar audio fail ho)
+            st.video(f"https://www.youtube.com/watch?v={song['videoId']}")
+            
     st.markdown("</div>", unsafe_allow_html=True)
 
-# >>> HOME / SEARCH SCREEN (Bilkul Same Hai) <<<
+# >>> HOME SCREEN <<<
 else:
     st.title("Vibe Music 🎵")
     
-    # 1. SEARCH BAR
-    new_query = st.text_input("", placeholder="Search songs, artists, or moods...", value=st.session_state.search_query)
+    query = st.text_input("", placeholder="Search song...", value=st.session_state.search_query)
 
-    if new_query:
-        st.session_state.search_query = new_query
+    if query:
+        st.session_state.search_query = query
         
-        # 2. SUGGESTIONS
-        suggs = get_search_suggestions(new_query)
-        if suggs:
-            st.caption("Did you mean?")
-            cols = st.columns(len(suggs))
-            for i, sugg in enumerate(suggs):
-                with cols[i]:
-                    if st.button(sugg, key=f"s_{i}"):
-                        st.session_state.search_query = sugg
+        # Results
+        try:
+            results = yt.search(query, filter="songs")[:10]
+            for song in results:
+                title = song.get('title', 'Track')
+                try: artist = song['artists'][0]['name']
+                except: artist = "Artist"
+                try: thumb = song['thumbnails'][0]['url'] 
+                except: thumb = ""
+                
+                c1, c2, c3 = st.columns([1, 5, 1])
+                with c1: st.image(thumb, width=50)
+                with c2: 
+                    st.write(f"**{title}**")
+                    st.caption(artist)
+                with c3:
+                    if st.button("▶", key=f"p_{song['videoId']}"):
+                        st.session_state.current_song = song
+                        st.session_state.page = 'player'
                         st.rerun()
+                st.markdown("<hr style='margin: 5px 0; border-color: #333;'>", unsafe_allow_html=True)
+        except:
+            st.error("Search failed.")
 
-        # 3. RESULTS LIST
-        st.markdown("---")
-        results = search_tracks(st.session_state.search_query)
-        
-        for song in results:
-            # Clean Data
-            title = song.get('title', 'Track')
-            try: artist = song['artists'][0]['name']
-            except: artist = "Artist"
-            try: thumb = song['thumbnails'][0]['url'] 
-            except: thumb = ""
-            vid_id = song['videoId']
-
-            # Compact Row
-            c1, c2, c3 = st.columns([1, 5, 1])
-            with c1:
-                st.image(thumb, width=50)
-            with c2:
-                st.markdown(f"<div style='margin-top: 5px; font-weight: bold;'>{title}</div>", unsafe_allow_html=True)
-                st.caption(artist)
-            with c3:
-                # PLAY BUTTON
-                if st.button("▶", key=f"p_{vid_id}"):
-                    st.session_state.current_song = song
-                    st.session_state.page = 'player'
-                    st.rerun()
-            
-            st.markdown("<div style='border-bottom: 1px solid #222; margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-
-    # 4. DEFAULT HOME
     else:
-        st.subheader("🚀 Quick Picks")
-        
-        moods = ["Trending India", "Punjabi Hits", "LoFi Beats", "Gym Phonk", "90s Bollywood"]
-        m_cols = st.columns(3)
-        for i, mood in enumerate(moods):
-            with m_cols[i % 3]:
-                if st.button(mood, key=f"m_{i}", use_container_width=True):
-                    st.session_state.search_query = mood
+        st.subheader("🔥 Quick Play")
+        moods = ["Arjan Vailly", "Chaleya", "Punjabi Hits", "LoFi"]
+        cols = st.columns(2)
+        for i, m in enumerate(moods):
+            with cols[i % 2]:
+                if st.button(m, key=f"m_{i}", use_container_width=True):
+                    st.session_state.search_query = m
                     st.rerun()
 
 
 
                 #python -m streamlit run music.py
+
